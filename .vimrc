@@ -171,3 +171,82 @@ class AnimalDeserializer : JsonDeserializer<Animal> {
     }
 }
 ---
+
+
+
+---
+plugins {
+    kotlin("jvm") version "2.2.20"
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.0"
+}
+
+dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    testImplementation(kotlin("test"))
+}
+
+---
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+
+// -----------------------------
+// sealed class Animal にネストされた Dog / Cat
+// Kotlin のクラスには type プロパティを持たせない
+// → JSON 上の "type" はポリモーフィック判定用の仮想フィールド
+// -----------------------------
+@Serializable
+sealed class Animal {
+
+    @Serializable
+    @SerialName("dog")
+    data class Dog(
+        val name: String,
+        val age: Int
+    ) : Animal()
+
+    @Serializable
+    @SerialName("cat")
+    data class Cat(
+        val name: String,
+        val color: String
+    ) : Animal()
+}
+
+//// Kotlinx Serialization 用 Json インスタンス
+//// classDiscriminator = "type" にしているので
+//// JSON は {"type":"dog", "name":..., "age":...} のようになる
+//val json = Json {
+//    prettyPrint = true
+//    classDiscriminator = "type"
+//}
+
+// -----------------------------
+// 動作確認 main
+// -----------------------------
+fun main() {
+
+    val dogOriginal: Animal = Animal.Dog(
+        name = "POCHI",
+        age = 4
+    )
+
+    val json = Json
+//    val json = Json {
+//        ignoreUnknownKeys = true   // 余計なフィールドが来ても無視
+//        encodeDefaults = true      // デフォルト値も出力
+        // classDiscriminator = "type"  // sealed class の識別子名を変えたい場合
+//    }
+//    val json = Json {
+//        prettyPrint = true
+//        classDiscriminator = "type"
+//    }
+
+    val jsonText = json.encodeToString<Animal>(dogOriginal)
+    println(jsonText)
+
+    val restored: Animal = json.decodeFromString(jsonText)
+    println(restored)
+}
+---
