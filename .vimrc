@@ -125,3 +125,49 @@ composable(
 val encoded = backStackEntry.arguments?.getString("stateJson")!!
 val json = URLDecoder.decode(encoded, Charsets.UTF_8.name())
 val state = JsonConfig.json.decodeFromString<ScreenState>(json)
+
+
+---
+implementation("com.google.code.gson:gson:2.10.1")
+---
+import com.google.gson.*
+import java.lang.reflect.Type
+import java.net.URLEncoder
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+
+sealed class Animal {
+    data class Dog(val type: String = "dog", val name: String, val age: Int) : Animal()
+    data class Cat(val type: String = "cat", val name: String, val color: String) : Animal()
+}
+
+fun main() {
+    val gson = GsonBuilder()
+        .registerTypeAdapter(Animal::class.java, AnimalDeserializer())
+        .create()
+
+    val dog = Animal.Dog(name = "inu", age = 4)
+    val json = gson.toJson(dog)
+    println("json dog = $json")
+
+    val restoredDog: Animal = gson.fromJson(json, Animal::class.java)
+    println("restored dog = $restoredDog")
+}
+
+class AnimalDeserializer : JsonDeserializer<Animal> {
+    override fun deserialize(
+        json: JsonElement,
+        typeOfT: Type,
+        context: JsonDeserializationContext
+    ): Animal {
+        val obj = json.asJsonObject
+        val type = obj["type"].asString   // Dog/Cat の type フィールドで分岐
+
+        return when (type) {
+            "dog" -> context.deserialize(obj, Animal.Dog::class.java)
+            "cat" -> context.deserialize(obj, Animal.Cat::class.java)
+            else -> throw JsonParseException("Unknown type: $type")
+        }
+    }
+}
+---
