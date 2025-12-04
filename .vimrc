@@ -13,240 +13,101 @@ set shiftwidth=4
 inoremap <silent> jj <ESC>
 
 
-sealed class Animal {
-    abstract val type: String
+package com.example.orbittrial.vm
+
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.Flow
+import org.orbitmvi.orbit.ContainerHost
+import org.orbitmvi.orbit.container
+
+data class SampleState(
+    val message: String = "",
+    val count: Int = 0
+)
+
+interface SampleRepository {
+    suspend fun fetchFromServer(): Int
+
+    fun observe(): Flow<Int>
 }
 
-data class Dog(
-    override val type: String = "dog",
-    val name: String
-) : Animal()
+class SampleViewModel(
+    private val repository: SampleRepository
+): ContainerHost<SampleState, Nothing>, ViewModel() {
 
-data class Cat(
-    override val type: String = "cat",
-    val name: String
-) : Animal()
+    private val TAG = SampleViewModel::class.simpleName
 
-class AnimalDeserializer : JsonDeserializer<Animal> {
-    override fun deserialize(
-        json: JsonElement,
-        typeOfT: Type,
-        context: JsonDeserializationContext
-    ): Animal {
-        val obj = json.asJsonObject
-        val type = obj["type"].asString
+    override val container = viewModelScope.container<SampleState, Nothing>(
+        SampleState()
+    ) {
+        intent {
+            repository.observe().collect { value ->
+                reduce {
+                    state.copy(count = value)
+                }
+            }
+        }
+    }
 
-        return when (type) {
-            "dog" -> context.deserialize(obj, Dog::class.java)
-            "cat" -> context.deserialize(obj, Cat::class.java)
-            else -> throw JsonParseException("Unknown type: $type")
+    fun onIncrement() = intent {
+        reduce {
+            state.copy(count = state.count + 1)
+        }
+    }
+
+    fun onLoad() = intent {
+        try {
+            val value = repository.fetchFromServer()
+            reduce {
+                state.copy(
+                    count = value
+                )
+            }
+        } catch (t: Throwable) {
         }
     }
 }
 
-val gson = GsonBuilder()
-    .registerTypeAdapter(Animal::class.java, AnimalDeserializer())
-    .create()
 
-val json = """{"type":"dog","name":"Pochi"}"""
-val animal: Animal = gson.fromJson(json, Animal::class.java)
-// 中身は Dog(name=Pochi)
+package com.example.orbittrial.vm
 
------
-plugins {
-    id("com.android.application")
-    kotlin("android")
-    id("org.jetbrains.kotlin.plugin.serialization")
-}
+import io.mockk.coEvery
+import io.mockk.mockk
+import org.junit.Test
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.Before
+import org.orbitmvi.orbit.test.test
 
-dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:<最新版>")
-}
+@OptIn(ExperimentalCoroutinesApi::class)
+class SampleViewModelTest {
 
-@Serializable
-sealed class Animal {
-    @Serializable
-    @SerialName("dog")
-    data class Dog(val name: String) : Animal()
+    private val repository = mockk<SampleRepository>(relaxed = true)
+    private lateinit var vm: SampleViewModel
 
-    @Serializable
-    @SerialName("cat")
-    data class Cat(val name: String) : Animal()
-}
-
-
-@Serializable
-sealed class ScreenState {
-    @Serializable
-    data class Loading(val message: String) : ScreenState()
-
-    @Serializable
-    data class Success(val user: User) : ScreenState()
-
-    @Serializable
-    data class Error(val code: Int, val detail: String) : ScreenState()
-}
-
-import kotlinx.serialization.json.Json
-
-object JsonConfig {
-    val json = Json {
-        ignoreUnknownKeys = true   // 余計なフィールドが来ても無視
-        encodeDefaults = true      // デフォルト値も出力
-        // classDiscriminator = "type"  // sealed class の識別子名を変えたい場合
+    @Before
+    fun setUp() {
+        vm = SampleViewModel(repository)
     }
-}
 
-// 遷移元
-val json = JsonConfig.json.encodeToString(user)
-val encoded = URLEncoder.encode(json, Charsets.UTF_8.name())
-navController.navigate("detail/$encoded")
+    @Test
+    fun test_onIncrement() = runTest {
+        vm.test(this) {
+            coEvery {
+                repository.observe()
+            } returns flowOf(5)
 
-/ 遷移元
-val state: ScreenState = ScreenState.Success(user)
-val json = JsonConfig.json.encodeToString(state)
-val encoded = URLEncoder.encode(json, Charsets.UTF_8.name())
-navController.navigate("next/$encoded")
+            advanceUntilIdle()
 
+            containerHost.onIncrement()
 
-// グラフ定義
-composable(
-    route = "detail/{userJson}",
-    arguments = listOf(
-        navArgument("userJson") { type = NavType.StringType }
-    )
-) { backStackEntry ->
-    val encoded = backStackEntry.arguments?.getString("userJson")!!
-    val json = URLDecoder.decode(encoded, Charsets.UTF_8.name())
-    val user = JsonConfig.json.decodeFromString<User>(json)
-    DetailScreen(user)
-}
-
-val encoded = backStackEntry.arguments?.getString("stateJson")!!
-val json = URLDecoder.decode(encoded, Charsets.UTF_8.name())
-val state = JsonConfig.json.decodeFromString<ScreenState>(json)
-
-
----
-implementation("com.google.code.gson:gson:2.10.1")
----
-import com.google.gson.*
-import java.lang.reflect.Type
-import java.net.URLEncoder
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
-
-sealed class Animal {
-    data class Dog(val type: String = "dog", val name: String, val age: Int) : Animal()
-    data class Cat(val type: String = "cat", val name: String, val color: String) : Animal()
-}
-
-fun main() {
-    val gson = GsonBuilder()
-        .registerTypeAdapter(Animal::class.java, AnimalDeserializer())
-        .create()
-
-    val dog = Animal.Dog(name = "inu", age = 4)
-    val json = gson.toJson(dog)
-    println("json dog = $json")
-
-    val restoredDog: Animal = gson.fromJson(json, Animal::class.java)
-    println("restored dog = $restoredDog")
-}
-
-class AnimalDeserializer : JsonDeserializer<Animal> {
-    override fun deserialize(
-        json: JsonElement,
-        typeOfT: Type,
-        context: JsonDeserializationContext
-    ): Animal {
-        val obj = json.asJsonObject
-        val type = obj["type"].asString   // Dog/Cat の type フィールドで分岐
-
-        return when (type) {
-            "dog" -> context.deserialize(obj, Animal.Dog::class.java)
-            "cat" -> context.deserialize(obj, Animal.Cat::class.java)
-            else -> throw JsonParseException("Unknown type: $type")
+            expectState { copy(count = 6) }
         }
     }
-}
----
 
-
-
----
-plugins {
-    kotlin("jvm") version "2.2.20"
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.0"
 }
 
-dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-    testImplementation(kotlin("test"))
-}
-
----
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-
-// -----------------------------
-// sealed class Animal にネストされた Dog / Cat
-// Kotlin のクラスには type プロパティを持たせない
-// → JSON 上の "type" はポリモーフィック判定用の仮想フィールド
-// -----------------------------
-@Serializable
-sealed class Animal {
-
-    @Serializable
-    @SerialName("dog")
-    data class Dog(
-        val name: String,
-        val age: Int
-    ) : Animal()
-
-    @Serializable
-    @SerialName("cat")
-    data class Cat(
-        val name: String,
-        val color: String
-    ) : Animal()
-}
-
-//// Kotlinx Serialization 用 Json インスタンス
-//// classDiscriminator = "type" にしているので
-//// JSON は {"type":"dog", "name":..., "age":...} のようになる
-//val json = Json {
-//    prettyPrint = true
-//    classDiscriminator = "type"
-//}
-
-// -----------------------------
-// 動作確認 main
-// -----------------------------
-fun main() {
-
-    val dogOriginal: Animal = Animal.Dog(
-        name = "POCHI",
-        age = 4
-    )
-
-    val json = Json
-//    val json = Json {
-//        ignoreUnknownKeys = true   // 余計なフィールドが来ても無視
-//        encodeDefaults = true      // デフォルト値も出力
-        // classDiscriminator = "type"  // sealed class の識別子名を変えたい場合
-//    }
-//    val json = Json {
-//        prettyPrint = true
-//        classDiscriminator = "type"
-//    }
-
-    val jsonText = json.encodeToString<Animal>(dogOriginal)
-    println(jsonText)
-
-    val restored: Animal = json.decodeFromString(jsonText)
-    println(restored)
-}
----
