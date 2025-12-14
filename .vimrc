@@ -111,3 +111,8 @@ class SampleViewModelTest {
 
 }
 
+inline fun <reified T> String.fromJsonList(): List<T> {
+    val gson = Gson()
+    val type = object : TypeToken<List<T>>() {}.type
+    return gson.fromJson(this, type)
+}
